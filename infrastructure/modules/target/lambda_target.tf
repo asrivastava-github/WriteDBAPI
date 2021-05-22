@@ -17,18 +17,9 @@ locals {
   path = replace(var.path, "/", "")
 }
 
-
-# zip lambda script. Assuming a single python file. In case of dependency management zip will be build as a prerequisite
-# step and stored to artifacoty or any other binary management service. Download before running the terraform
-data "archive_file" "py_api" {
-  type        = "zip"
-  source_file = "./application/${var.source_code}.py"
-  output_path = "${var.source_code}.zip"
-}
-
 resource "aws_lambda_function" "write_api" {
-  filename         = data.archive_file.py_api.output_path
-  source_code_hash = filebase64sha256(data.archive_file.py_api.output_path)
+  filename         = var.source_code
+  source_code_hash = filebase64sha256(var.source_code)
   function_name    = var.name
   handler          = var.handler
   role             = var.iam_role
@@ -62,7 +53,7 @@ resource "aws_lb_target_group" "tg" {
     protocol            = "HTTP"
     interval            = 30
     timeout             = 5
-    path                = "/"
+    path                = "/health"
     matcher             = "200"
   }
   tags = {

@@ -191,11 +191,6 @@ resource "aws_dynamodb_table" "app_db" {
     type = "S"
   }
 
-  tags = {
-    Name = "AppDB"
-    Type = "Assignment"
-    Owner = "avinash"
-  }
 //  point_in_time_recovery {
 //    enabled = true
 //  }
@@ -344,6 +339,14 @@ resource "aws_iam_policy_attachment" "attach_lambda_policy" {
 }
 
 # Create Serverless API layer in form of Lambda
+# zip lambda script. Assuming a single python file. In case of dependency management zip will be build as a prerequisite
+# step and stored to artifacoty or any other binary management service. Download before running the terraform
+data "archive_file" "py_api" {
+  type        = "zip"
+  source_file = "./application/${var.source_code}.py"
+  output_path = "${var.source_code}.zip"
+}
+
 module "createLambda" {
   source          = "./infrastructure/modules/target"
   name            = var.lambda_name
@@ -354,9 +357,14 @@ module "createLambda" {
   db_table        = aws_dynamodb_table.app_db.arn
   alb_arn         = aws_lb.lb.arn
   vpc_id          = aws_vpc.app_vpc.id
-  source_code     = var.source_code
+  source_code     = data.archive_file.py_api.output_path
   depends_on      = [aws_dynamodb_table.app_db, aws_iam_role.lambda_role]
 }
 
 # Region failure with VPC peering from different region and route 53 to send traffic to another region with Lambda as
 # standby
+
+
+output "albDNS" {
+  value = aws_lb.lb.dns_name
+}

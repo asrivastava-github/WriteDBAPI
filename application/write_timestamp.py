@@ -7,12 +7,35 @@ import json
 from datetime import datetime
 
 
-endpoint = os.environ['PATH']
-accept_methods = os.environ['METHODS'].replace(' ', '').replace('"', '').replace("'", "").split(',')
+def prepare_response(code, body=None):
+  body = body if body else ''
+  msg = 'OK' if str(code).startswith('2') else 'NOT OK'
+
+  return {
+    "statusCode": code,
+    "statusDescription": "{0} {1}".format(code, msg),
+    "isBase64Encoded": False,
+    "body": body,
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8"
+    }
+  }
+
+
+# endpoint = os.environ['PATH']
+# accept_methods = os.environ['METHODS'].replace(' ', '').replace('"', '').replace("'", "").split(',')
 
 # few standard error
-not_found_error = json.dumps({'error': 'No timestamp has been recorded yet.'}), 404
-bad_request_error = json.dumps({'error': 'No timestamp has been recorded yet.'}), 400
+not_found_error = json.dumps({'error': 'Requested Resource is not found. No timestamp has been recorded yet.'}), 404
+bad_request_error = json.dumps({'error': 'Bad Request, Server is unable to understand the request. '
+                                         'No timestamp has been recorded yet.'}), 400
+std_error = json.dumps({'error': 'This logic has not been code. Implementation pending.'}), 501
+server_error = """'error': 'Unable to put item in DB: {}'"""
+happy_response = prepare_response(200)
+
+welcome_resp = happy_response.copy()
+welcome_resp['body'] = """<html><head><title>writeDB</title><style>html, body {margin: 0; padding: 0;font-family: arial; 
+font-weight: 700; font-size: 3em; text-align: center;}</style></head><body><p>Welcome to HomePage</p></body></html>"""
 
 # Fetch the Table name from environment variable. It can be passed via terraform as well
 DB_TABLE = os.environ['DB_TABLE']
@@ -29,13 +52,17 @@ def fetch_entry(unique_id):
   :return: The entry of table for the key
   '''
   entry_exists = False
-  resp = client.get_item(
-    TableName=DB_TABLE,
-    Key={'uniqueId': {'S': unique_id}}
-  )
-  item = resp.get('Item')
-  if item:
-    entry_exists = True
+  item = None
+  try:
+    resp = client.get_item(
+      TableName=DB_TABLE,
+      Key={'uniqueId': {'S': unique_id}}
+    )
+    item = resp.get('Item')
+    if item:
+      entry_exists = True
+  except Exception as e:
+    print('Unique Item does not exists: {}'.format(unique_id))
 
   return entry_exists, item
 
@@ -48,76 +75,78 @@ def get_time_stamp(unique_id):
 
   return json.dumps({
     'uniqueId': item.get('S').get('uniqueId'),
-    'timeStamp': item.get('S').get('timeStamp')
+    'timeStamp': item.get('S').get('timeStamp'),
+    'clientIP': item.get('S').get('clientIP'),
+    'protocol': item.get('S').get('protocol')
   })
 
 
 def lambda_handler(event, context):
+  print(event)
   '''
   Main Lambda handler function
   :param event: Event received by Application Load balancer
   :param context: Context received by Application Load balancer
   :return:
   '''
+  if not event:
+    return std_error
 
-  # Default routing Error page
+  # Fetch required request details
+  request_method = event.get('httpMethod')
+  request_path = event.get('path')
+  headers = event.get('headers')
+  if request_path == '/health':
+    if 'user-agent' in headers:
+      if headers['user-agent'] == 'ELB-HealthChecker/2.0':
+        return happy_response
+  else:
+    trace_id = headers.get('x-amzn-trace-id')
+    client_ip = headers.get('x-forwarded-for')
+    serve_port = headers.get('x-forwarded-port')
+    protocol = headers.get('x-forwarded-proto')
+    print('{0}\n{1}\n{2}\n{3}\n{4}\n{5}'.format(trace_id, client_ip, serve_port, protocol, request_path, request_method))
 
-  response = {
-    "statusCode": 200,
-    "statusDescription": "200 OK",
-    "isBase64Encoded": False,
-    "headers": {
-      "Content-Type": "text/html; charset=utf-8"
-    }
-  }
-
-  response['body'] = """<html>
-  <head>
-  <title>Hello World!</title>
-  <style>
-  html, body {
-  margin: 0; padding: 0;
-  font-family: arial; font-weight: 700; font-size: 3em;
-  text-align: center;
-  }
-  </style>
-  </head>
-  <body>
-  <p>Hello World!</p>
-  </body>
-  </html>"""
-  return response
-
-  request_method = event['httpMethod']
-  request_path = event['path']
-  trace_id = event['headers']['x-amzn-trace-id']
-  if not(request_method and request_path and trace_id):
-    return bad_request_error
-
-  if request_method in accept_methods and request_path == endpoint:
     timestamp = datetime.strftime(datetime.now(), str_time_format)
-
     # To make key unique, adding timestamp along with trace id. AWS claims it to be unique but not sure how it will be
     # over the period of time. We can have a fancy hash generator but keeping it simple.
     unique_id = '{0}{1}'.format(trace_id, timestamp.replace(' ', ''))
 
-    # Making Lambda idempotent
-    entry, item = fetch_entry(unique_id)
-    if entry:
-      print('Entry already exists.')
-    else:
-      client.put_item(
-        TableName=DB_TABLE,
-        Item={
-          'uniqueId': {'S': unique_id},
-          'timeStamp': {'S': timestamp}
-        }
-      )
+    if not (trace_id and client_ip and serve_port and protocol):
+      return bad_request_error
+    if request_path == '/' and request_method == 'GET':
+      return welcome_resp
+    if request_path == '/app' and request_method == 'POST':
+      # Making Lambda idempotent
+      entry, item = fetch_entry(unique_id)
+      if entry and item:
+        return {'info': 'DB timestamp entry already exists with uniqueID: {}.'.format(unique_id)}, 200
+      else:
+        try:
+          print('Writing timestamp to DynamoDB, uniqueID: {}'.format(unique_id))
+          client.put_item(
+            TableName=DB_TABLE,
+            Item={
+              'uniqueId': {'S': unique_id},
+              'timeStamp': {'S': timestamp},
+              'clientIP': {'S': client_ip},
+              'protocol': {'S': protocol},
+            }
+          )
+        except Exception as e:
+          return json.dumps(server_error.format(e)), 500
 
-    entry, item = fetch_entry(unique_id)
-    if not entry:
-      return not_found_error
-    return json.dumps(item)
+      entry, item = fetch_entry(unique_id)
+      if not entry:
+        return not_found_error
+      return json.dumps(item), 201
+
+    if request_path == '/app' and request_method == 'GET':
+      entry, item = fetch_entry(unique_id)
+      if not entry:
+        return not_found_error
+      return json.dumps(item), 201
+
 
   # from flask import Flask, request
   # from flask_restful import Resource, Api
@@ -140,20 +169,3 @@ def lambda_handler(event, context):
   #
   # if __name__ == '__main__':
   #   app.run(host="0.0.0.0", port=port)
-
-  dict = {'requestContext': {'elb': {
-    'targetGroupArn': 'arn:aws:elasticloadbalancing:eu-west-1:377219046518:targetgroup/avi-app-tg/498640211513e2a6'}},
-   'httpMethod': 'GET', 'path': '/favicon.ico', 'queryStringParameters': {},
-   'headers': {'accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-               'accept-encoding': 'gzip, deflate', 'accept-language': 'en-US,en;q=0.9', 'connection': 'keep-alive',
-               'host': 'avi-app-alb-299236829.eu-west-1.elb.amazonaws.com',
-               'referer': 'http://avi-app-alb-299236829.eu-west-1.elb.amazonaws.com/app',
-               'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36',
-               'x-amzn-trace-id': 'Root=1-60a83035-6d821077125160997936d9f7', 'x-forwarded-for': '81.140.213.55',
-               'x-forwarded-port': '80', 'x-forwarded-proto': 'http'}, 'body': '', 'isBase64Encoded': False}
-  dict2 = {'requestContext': {'elb': {'targetGroupArn': 'arn:aws:elasticloadbalancing:eu-west-1:377219046518:targetgroup/avi-app-tg/498640211513e2a6'}}, 'httpMethod': 'GET', 'path': '/app', 'queryStringParameters': {}, 'headers': {'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9', 'accept-encoding': 'gzip, deflate', 'accept-language': 'en-US,en;q=0.9', 'cache-control': 'max-age=0', 'connection': 'keep-alive', 'host': 'avi-app-alb-299236829.eu-west-1.elb.amazonaws.com', 'upgrade-insecure-requests': '1', 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36', 'x-amzn-trace-id': 'Root=1-60a83035-7309235e4567016e64e6e950', 'x-forwarded-for': '81.140.213.55', 'x-forwarded-port': '80', 'x-forwarded-proto': 'http'}, 'body': '', 'isBase64Encoded': False}
-
-
-  dict3 = {'requestContext': {'elb': {'targetGroupArn': 'arn:aws:elasticloadbalancing:eu-west-1:377219046518:targetgroup/avi-app-tg/498640211513e2a6'}}, 'httpMethod': 'GET', 'path': '/favicon.ico', 'queryStringParameters': {}, 'headers': {'accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8', 'accept-encoding': 'gzip, deflate', 'accept-language': 'en-US,en;q=0.9', 'connection': 'keep-alive', 'host': 'avi-app-alb-299236829.eu-west-1.elb.amazonaws.com', 'referer': 'http://avi-app-alb-299236829.eu-west-1.elb.amazonaws.com/app', 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36', 'x-amzn-trace-id': 'Root=1-60a83032-469449f240ea30471729855d', 'x-forwarded-for': '81.140.213.55', 'x-forwarded-port': '80', 'x-forwarded-proto': 'http'}, 'body': '', 'isBase64Encoded': False}
-
-

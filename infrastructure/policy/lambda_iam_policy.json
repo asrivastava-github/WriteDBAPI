@@ -21,7 +21,7 @@
         "dynamodb:UpdateItem",
         "dynamodb:UpdateTable"
       ],
-      "Resource": "arn:aws:lambda:eu-west-1::function/avi-*"
+      "Resource": "arn:aws:dynamodb:eu-west-1::table/avi-*"
     },
     {
       "Sid": "ec2Access",
