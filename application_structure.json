@@ -1,0 +1,14 @@
+{
+  "services": {
+    "prod": {
+      "accountId": "377219046518",
+      "/app": {
+        "function": "write_timestamp",
+        "method": ["POST"],
+        "description": "write timestamp to DB"
+      }
+    },
+    "state_bucket": "avi-assignment-api-service",
+    "state_key": "api/avi-"
+  }
+}

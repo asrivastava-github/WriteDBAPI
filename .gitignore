@@ -1,0 +1,29 @@
+### Terraform template
+# Local .terraform directories
+**/.terraform/*
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+
+# Ignore CLI configuration files
+.terraformrc
+terraform.rc
+
+*.manifest
+*.spec
+*.zip
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+

@@ -1,0 +1,64 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "lambdadynamoDB",
+      "Effect": "Allow",
+      "Action":[
+        "dynamodb:DescribeStream",
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator",
+        "dynamodb:ListStreams",
+        "dynamodb:CreateTable",
+        "dynamodb:CreateTableReplica",
+        "dynamodb:DeleteItem",
+        "dynamodb:DeleteTable",
+        "dynamodb:DeleteTableReplica",
+        "dynamodb:DescribeBackup",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "dynamodb:UpdateTable"
+      ],
+      "Resource": "arn:aws:lambda:eu-west-1::function/avi-*"
+    },
+    {
+      "Sid": "ec2Access",
+      "Effect": "Allow",
+      "Action":[
+        "ec2:AttachNetworkInterface",
+        "ec2:CreateNetworkInterface",
+        "ec2:DeleteNetworkInterface",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DetachNetworkInterface"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "lambdaAccess",
+      "Effect": "Allow",
+      "Action":[
+        "lambda:InvokeFunction",
+        "lambda:InvokeAsync"
+      ],
+      "Resource": ["arn:aws:lambda:eu-west-1::function/avi-*"]
+    },
+    {
+      "Sid": "logCreate",
+      "Effect": "Allow",
+      "Action":[
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": ["arn:aws:logs:eu-west-1:*"]
+    },
+    {
+      "Sid": "logPut",
+      "Effect": "Allow",
+      "Action": ["logs:PutLogEvents"],
+      "Resource": ["arn:aws:logs:eu-west-1::log-group:/aws/lambda/*/"]
+    }
+  ]
+}
