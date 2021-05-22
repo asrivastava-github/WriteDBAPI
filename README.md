@@ -43,8 +43,32 @@
 
 
 
-### OutBound to ephemeral port is extremely important
+### OutBound to ephemeral port and 443 is extremely important on NACL
 
 ### Need hosted zone and register domain for multi-region fail-over of application layer.
 
 ### DynamoDB Global Table can handle multi-region at DB layer
+
+### DynamoDB Endpoint access
+    * Creation of endpoint
+    * Enabling inbound access on Ephemral ports 1024 - 65355 for IPs ["52.94.24.0/23", "52.94.26.0/23", "52.94.5.0/24", "52.119.240.0/21"] <--- Important DynnamoDB specific AWS regional IPs
+    * Outbound connection of internal pn 443
+
+
+### Terraform beauty.
+Even if resource "aws_vpc_endpoint" "dynamoDB" is part of terraform it will create for the first time but will not destroy
+when you fire terraform destroy it's harmless and free to cost connection to AWS services on AWS network.
+
+References:
+
+https://docs.aws.amazon.com/vpc/latest/userguide/managed-prefix-lists.html
+https://docs.aws.amazon.com/general/latest/gr/rande.html
+https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html
+https://aws.amazon.com/blogs/aws/new-vpc-endpoints-for-dynamodb/
+https://docs.amazonaws.cn/en_us/amazondynamodb/latest/developerguide/vpc-endpoints-dynamodb.html
+https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/vpc-endpoints-dynamodb-tutorial.html
+https://aws.amazon.com/blogs/networking-and-content-delivery/lambda-functions-as-targets-for-application-load-balancers/
+https://docs.aws.amazon.com/lambda/latest/dg/monitoring-functions-access-metrics.html
+https://docs.aws.amazon.com/lambda/latest/dg/runtimes-extensions-api.html
+https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GettingStarted.Python.03.html
+https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb.html#service-resource
