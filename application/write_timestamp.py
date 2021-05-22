@@ -6,18 +6,21 @@ import boto3
 import json
 from datetime import datetime
 
+std_welcome = """<html><head><title>writeDB</title><style>html, body {margin: 0; padding: 0;font-family: arial; 
+font-weight: 700; font-size: 3em; text-align: center;}</style></head><body><p>Welcome to HomePage</p></body></html>"""
 
-def prepare_response(code, body=None):
-  body = body if body else ''
+def prepare_response(code, result=None, resp_type=None):
+  body = "<html><head><title>DB timestamp response</title><body><div>{}</div></body></head></html>".format(result) if result else std_welcome
   msg = 'OK' if str(code).startswith('2') else 'NOT OK'
+  resp_type = resp_type if resp_type else 'text/html;'
 
   return {
-    "statusCode": code,
-    "statusDescription": "{0} {1}".format(code, msg),
-    "isBase64Encoded": False,
-    "body": body,
-    "headers": {
-      "Content-Type": "text/html; charset=utf-8"
+    'statusCode': code,
+    'statusDescription': '{0} {1}'.format(code, msg),
+    'isBase64Encoded': False,
+    'body': body,
+    'headers': {
+      'Content-Type': '{}; charset=utf-8'.format(resp_type)
     }
   }
 
@@ -26,16 +29,15 @@ def prepare_response(code, body=None):
 # accept_methods = os.environ['METHODS'].replace(' ', '').replace('"', '').replace("'", "").split(',')
 
 # few standard error
-not_found_error = json.dumps({'error': 'Requested Resource is not found. No timestamp has been recorded yet.'}), 404
-bad_request_error = json.dumps({'error': 'Bad Request, Server is unable to understand the request. '
-                                         'No timestamp has been recorded yet.'}), 400
-std_error = json.dumps({'error': 'This logic has not been code. Implementation pending.'}), 501
+# not_found_error = json.dumps({'error': 'Requested Resource is not found. No timestamp has been recorded yet.'}), 404
+not_found_error = prepare_response(404, "{'error': 'Requested Resource is not found. No timestamp has been recorded yet.'}")
+# bad_request_error = json.dumps({'error': 'Bad Request, Server is unable to understand the request. '
+#                                          'No timestamp has been recorded yet.'}), 400
+bad_request_error = prepare_response(400, "'error': 'Bad Request, Server is unable to understand the request. No "
+                                          "timestamp has been recorded yet.'", resp_type='application/json')
+# std_error = json.dumps({'error': 'This logic has not been code. Implementation pending.'}), 501
+std_error = prepare_response(501, "{'error': 'This logic has not been code. Implementation pending.'}")
 server_error = """'error': 'Unable to put item in DB: {}'"""
-happy_response = prepare_response(200)
-
-welcome_resp = happy_response.copy()
-welcome_resp['body'] = """<html><head><title>writeDB</title><style>html, body {margin: 0; padding: 0;font-family: arial; 
-font-weight: 700; font-size: 3em; text-align: center;}</style></head><body><p>Welcome to HomePage</p></body></html>"""
 
 # Fetch the Table name from environment variable. It can be passed via terraform as well
 DB_TABLE = os.environ['DB_TABLE']
@@ -51,18 +53,16 @@ def fetch_entry(unique_id):
   :param unique_id: Unique key of dynamo DB
   :return: The entry of table for the key
   '''
+  print('Fetching items with unique_id: {}'.format(unique_id))
   entry_exists = False
   item = None
   try:
-    resp = client.get_item(
-      TableName=DB_TABLE,
-      Key={'uniqueId': {'S': unique_id}}
-    )
+    resp = client.get_item(TableName=DB_TABLE, Key={'uniqueId': {'S': unique_id}})
     item = resp.get('Item')
     if item:
       entry_exists = True
   except Exception as e:
-    print('Unique Item does not exists: {}'.format(unique_id))
+    print('Unique Item does not exists: {0}. Error: {1}'.format(unique_id, e))
 
   return entry_exists, item
 
@@ -99,7 +99,7 @@ def lambda_handler(event, context):
   if request_path == '/health':
     if 'user-agent' in headers:
       if headers['user-agent'] == 'ELB-HealthChecker/2.0':
-        return happy_response
+        return prepare_response(200)
   else:
     trace_id = headers.get('x-amzn-trace-id')
     client_ip = headers.get('x-forwarded-for')
@@ -115,12 +115,12 @@ def lambda_handler(event, context):
     if not (trace_id and client_ip and serve_port and protocol):
       return bad_request_error
     if request_path == '/' and request_method == 'GET':
-      return welcome_resp
+      return prepare_response(200)
     if request_path == '/app' and request_method == 'POST':
       # Making Lambda idempotent
       entry, item = fetch_entry(unique_id)
       if entry and item:
-        return {'info': 'DB timestamp entry already exists with uniqueID: {}.'.format(unique_id)}, 200
+        return prepare_response(200, "{'info': 'DB timestamp entry already exists with uniqueID: {}.'.format(unique_id)}")
       else:
         try:
           print('Writing timestamp to DynamoDB, uniqueID: {}'.format(unique_id))
@@ -134,18 +134,18 @@ def lambda_handler(event, context):
             }
           )
         except Exception as e:
-          return json.dumps(server_error.format(e)), 500
+          return prepare_response(500, e)
 
       entry, item = fetch_entry(unique_id)
       if not entry:
         return not_found_error
-      return json.dumps(item), 201
+      return prepare_response(201, json.dumps(item))
 
     if request_path == '/app' and request_method == 'GET':
       entry, item = fetch_entry(unique_id)
       if not entry:
         return not_found_error
-      return json.dumps(item), 201
+      return prepare_response(200, json.dumps(item))
 
 
   # from flask import Flask, request
@@ -169,3 +169,6 @@ def lambda_handler(event, context):
   #
   # if __name__ == '__main__':
   #   app.run(host="0.0.0.0", port=port)
+
+  # client.put_item(TableName='avi-app-dynamo', Item={'uniqueId': {'S': 'Avinash-test'}, 'timeStamp': {'S': timestamp}})
+  # client.delete_item(TableName='avi-app-dynamo', Item={'uniqueId': {'S': 'Avinash-test'}, 'timeStamp': {'S': "2021-05-22 15:38:25.926850"}})

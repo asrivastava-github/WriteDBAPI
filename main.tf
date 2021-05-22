@@ -354,7 +354,7 @@ module "createLambda" {
   iam_role        = aws_iam_role.lambda_role.arn
   lambda_sgs      = [aws_security_group.public-lambda-sg.id]
   lambda_subnets  = aws_subnet.public_subnet.*.id
-  db_table        = aws_dynamodb_table.app_db.arn
+  db_table        = var.db_name
   alb_arn         = aws_lb.lb.arn
   vpc_id          = aws_vpc.app_vpc.id
   source_code     = data.archive_file.py_api.output_path
