@@ -5,23 +5,9 @@
       "Sid": "lambdadynamoDB",
       "Effect": "Allow",
       "Action":[
-        "dynamodb:DescribeStream",
-        "dynamodb:GetRecords",
-        "dynamodb:GetShardIterator",
-        "dynamodb:ListStreams",
-        "dynamodb:CreateTable",
-        "dynamodb:CreateTableReplica",
-        "dynamodb:DeleteItem",
-        "dynamodb:DeleteTable",
-        "dynamodb:DeleteTableReplica",
-        "dynamodb:DescribeBackup",
-        "dynamodb:PutItem",
-        "dynamodb:Query",
-        "dynamodb:Scan",
-        "dynamodb:UpdateItem",
-        "dynamodb:UpdateTable"
+        "dynamodb:*"
       ],
-      "Resource": "arn:aws:dynamodb:eu-west-1::table/avi-*"
+      "Resource": "*"
     },
     {
       "Sid": "ec2Access",

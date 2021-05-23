@@ -24,6 +24,8 @@ resource "aws_lambda_function" "write_api" {
   handler          = var.handler
   role             = var.iam_role
   runtime          = var.runtime
+  timeout          = 60
+  memory_size      = 128
   vpc_config {
     security_group_ids = var.lambda_sgs
     subnet_ids         = var.lambda_subnets

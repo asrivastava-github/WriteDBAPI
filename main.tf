@@ -5,9 +5,10 @@ variable db_name              {default = "avi-app-dynamo"}
 variable lambda_name          {default = "avi-lambda-app-api"}
 variable dynamo_read          {default = 20}
 variable dynamo_write         {default = 20}
-variable cidr_block           {default = "11.0.0.0/24"}
-variable private_subnet_cidr  {default = "11.0.0.0/28"}
-variable public_subnet_cidr   {default = ["11.0.0.32/28", "11.0.0.80/28"]}
+variable cidr_block           {default = "10.0.0.0/24"}
+variable private_subnet_cidr  {default = ["10.0.0.112/28", "10.0.0.144/28"]}
+variable public_subnet_cidr   {default = ["10.0.0.32/28", "10.0.0.80/28"]}
+variable dynamobAWSIps        {default = ["52.94.24.0/23", "52.94.26.0/23", "52.94.5.0/24", "52.119.240.0/21"]}
 variable "availability_zone"  {default = ["eu-west-1a", "eu-west-1b"]}
 variable ports                {default = [80, 443]}
 variable source_ips           {default = "0.0.0.0/0"}
@@ -107,11 +108,22 @@ resource "aws_subnet" "public_subnet" {
   depends_on = [aws_vpc.app_vpc]
 }
 
+resource "aws_subnet" "private_subnet" {
+  count             = length(var.private_subnet_cidr)
+  cidr_block        = var.private_subnet_cidr[count.index]
+  vpc_id            = aws_vpc.app_vpc.id
+  availability_zone = var.availability_zone[count.index]
+  tags = {
+    Name = "avi-private-subnet_${count.index}"
+  }
+  depends_on = [aws_vpc.app_vpc]
+}
+
 resource "aws_network_acl" "nacl" {
   vpc_id     = aws_vpc.app_vpc.id
   subnet_ids = aws_subnet.public_subnet.*.id
   tags = {
-    Name = "avi-private-acl"
+    Name = "avi-public-acl"
   }
   depends_on = [aws_vpc.app_vpc, aws_subnet.public_subnet]
 }
@@ -131,7 +143,22 @@ resource "aws_network_acl_rule" "nacl_rules_in_https" {
   depends_on = [aws_vpc.app_vpc, aws_subnet.public_subnet]
 }
 
-resource "aws_network_acl_rule" "nacl_rules_out_https" {
+resource "aws_network_acl_rule" "nacl_rules_in_dynamoDB_EP" {
+  count          = length(var.dynamobAWSIps)
+  network_acl_id = aws_network_acl.nacl.id
+  protocol       = "tcp"
+  rule_action    = "allow"
+  rule_number    = count.index * 10 + 400
+  cidr_block     = var.dynamobAWSIps[count.index]
+  to_port        = 65355
+  from_port      = 1024
+  lifecycle {
+    create_before_destroy = false
+  }
+  depends_on = [aws_vpc.app_vpc, aws_subnet.public_subnet]
+}
+
+resource "aws_network_acl_rule" "nacl_rules_out_ephemeral" {
   network_acl_id = aws_network_acl.nacl.id
   protocol       = "tcp"
   rule_action    = "allow"
@@ -139,6 +166,21 @@ resource "aws_network_acl_rule" "nacl_rules_out_https" {
   cidr_block     = var.source_ips
   to_port        = 65535
   from_port      = 1024
+  egress         = false
+  lifecycle {
+    create_before_destroy = false
+  }
+  depends_on = [aws_vpc.app_vpc, aws_subnet.public_subnet]
+}
+
+resource "aws_network_acl_rule" "nacl_rules_out_https" {
+  network_acl_id = aws_network_acl.nacl.id
+  protocol       = "tcp"
+  rule_action    = "allow"
+  rule_number    = 200
+  cidr_block     = var.source_ips
+  to_port        = 443
+  from_port      = 443
   egress         = true
   lifecycle {
     create_before_destroy = false
@@ -152,6 +194,23 @@ resource "aws_route_table" "route_table" {
     Name = "avi-route-table"
   }
   depends_on = [aws_vpc.app_vpc, aws_subnet.public_subnet]
+}
+
+resource "aws_vpc_endpoint" "dynamoDB" {
+  vpc_id       = aws_vpc.app_vpc.id
+  service_name = "com.amazonaws.eu-west-1.dynamodb"
+  route_table_ids = [aws_route_table.route_table.id]
+  policy = jsonencode({
+    Version   = "2012-10-17",
+    Statement = [{
+      Sid       = "AccessDyDB",
+      Effect    = "Allow",
+      Principal = "*"
+      Action    = "*"
+      Resource  = "*"
+    }]
+  })
+  depends_on = [aws_route_table.route_table]
 }
 
 resource "aws_route" "routes" {
@@ -238,7 +297,7 @@ module "alb_in" {
 }
 
 # outbound Rules to alb
-module "alb_out" {
+module "alb_out_std" {
   source        = "./infrastructure/modules/security_group_rules"
   count         = length(var.ports)
   type          = "egress"
@@ -248,6 +307,19 @@ module "alb_out" {
   sg_count      = "1"
   cidr_count    = "0"
   source_sg_id  = aws_security_group.public-lambda-sg.id
+  sg_id         = aws_security_group.public-alb-sg.id
+  description   = "ALB outbound"
+}
+
+module "alb_out_ephemral" {
+  source        = "./infrastructure/modules/security_group_rules"
+  type          = "egress"
+  to_port       = 1024
+  from_port     = 65355
+  protocol      = "tcp"
+  sg_count      = "0"
+  cidr_count    = "1"
+  cidr_blocks   = [var.source_ips]
   sg_id         = aws_security_group.public-alb-sg.id
   description   = "ALB outbound"
 }
@@ -266,6 +338,21 @@ module "lambda_in" {
   source_sg_id  = aws_security_group.public-alb-sg.id
   sg_id         = aws_security_group.public-lambda-sg.id
   description   = "Lambda inbound"
+}
+
+data "aws_prefix_list" "dynamoDB_EP" {
+  prefix_list_id = aws_vpc_endpoint.dynamoDB.id
+}
+
+# outbound Rules for Lambda to dynamoDB
+resource "aws_security_group_rule" "lambda_out_endpoint" {
+  from_port                = 443
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.public-lambda-sg.id
+  prefix_list_ids          = [data.aws_prefix_list.dynamoDB_EP.id]
+  to_port                  = 443
+  type                     = "egress"
+  description              = "Outbound Lambda EP"
 }
 
 # Logging to ALB

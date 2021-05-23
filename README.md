@@ -43,8 +43,13 @@
 
 
 
-### OutBound to ephemeral port is extremely important
+### OutBound to ephemeral port and 443 is extremely important on NACL
 
 ### Need hosted zone and register domain for multi-region fail-over of application layer.
 
 ### DynamoDB Global Table can handle multi-region at DB layer
+
+### DynamoDB Endpoint access
+    * Creation of endpoint
+    * Enabling inbound access on Ephemral ports 1024 - 65355 for IPs ["52.94.24.0/23", "52.94.26.0/23", "52.94.5.0/24", "52.119.240.0/21"] <--- Important DynnamoDB specific AWS regional IPs
+    * Outbound connection of internal pn 443

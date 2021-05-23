@@ -5,6 +5,9 @@ import os
 import boto3
 import json
 from datetime import datetime
+from botocore.config import Config
+
+_config = Config(region_name = 'eu-west-1', signature_version = 'v4', retries = {'max_attempts': 5, 'mode': 'standard'})
 
 std_welcome = """<html><head><title>writeDB</title><style>html, body {margin: 0; padding: 0;font-family: arial; 
 font-weight: 700; font-size: 3em; text-align: center;}</style></head><body><p>Welcome to HomePage</p></body></html>"""
@@ -41,13 +44,16 @@ server_error = """'error': 'Unable to put item in DB: {}'"""
 
 # Fetch the Table name from environment variable. It can be passed via terraform as well
 DB_TABLE = os.environ['DB_TABLE']
-# Create boto3 client to perform the dynamoDB actions
-client = boto3.client('dynamodb')
+
+# Create boto3 resource to perform the dynamoDB actions
+dd_resource = boto3.resource('dynamodb', region_name='eu-west-1', config=_config,
+                             endpoint_url='https://dynamodb.eu-west-1.amazonaws.com')
+TIME_TABLE = dd_resource.Table(DB_TABLE)
 # String format of time
 str_time_format = '%Y-%m-%d %H:%M:%S.%f'
 
 
-def fetch_entry(unique_id):
+def fetch_entry(unique_id, time_stamp):
   '''
   A function to fetch the dynamodb content of a specific key
   :param unique_id: Unique key of dynamo DB
@@ -57,28 +63,16 @@ def fetch_entry(unique_id):
   entry_exists = False
   item = None
   try:
-    resp = client.get_item(TableName=DB_TABLE, Key={'uniqueId': {'S': unique_id}})
+    resp = TIME_TABLE.get_item(Key={'uniqueId': unique_id, 'timeStamp': time_stamp})
+    print(resp)
     item = resp.get('Item')
+    print(item)
     if item:
       entry_exists = True
   except Exception as e:
     print('Unique Item does not exists: {0}. Error: {1}'.format(unique_id, e))
 
   return entry_exists, item
-
-
-# fetch the existing date in case of testing
-def get_time_stamp(unique_id):
-  entry, item = fetch_entry(unique_id)
-  if not entry:
-    return not_found_error
-
-  return json.dumps({
-    'uniqueId': item.get('S').get('uniqueId'),
-    'timeStamp': item.get('S').get('timeStamp'),
-    'clientIP': item.get('S').get('clientIP'),
-    'protocol': item.get('S').get('protocol')
-  })
 
 
 def lambda_handler(event, context):
@@ -118,31 +112,30 @@ def lambda_handler(event, context):
       return prepare_response(200)
     if request_path == '/app' and request_method == 'POST':
       # Making Lambda idempotent
-      entry, item = fetch_entry(unique_id)
+      entry, item = fetch_entry(unique_id, timestamp)
       if entry and item:
         return prepare_response(200, "{'info': 'DB timestamp entry already exists with uniqueID: {}.'.format(unique_id)}")
       else:
         try:
           print('Writing timestamp to DynamoDB, uniqueID: {}'.format(unique_id))
-          client.put_item(
-            TableName=DB_TABLE,
+          TIME_TABLE.put_item(
             Item={
-              'uniqueId': {'S': unique_id},
-              'timeStamp': {'S': timestamp},
-              'clientIP': {'S': client_ip},
-              'protocol': {'S': protocol},
+              'uniqueId': unique_id,
+              'timeStamp': timestamp,
+              'clientIP': client_ip,
+              'protocol': protocol,
             }
           )
         except Exception as e:
           return prepare_response(500, e)
 
-      entry, item = fetch_entry(unique_id)
+      entry, item = fetch_entry(unique_id, timestamp)
       if not entry:
         return not_found_error
       return prepare_response(201, json.dumps(item))
 
     if request_path == '/app' and request_method == 'GET':
-      entry, item = fetch_entry(unique_id)
+      entry, item = fetch_entry(unique_id, timestamp)
       if not entry:
         return not_found_error
       return prepare_response(200, json.dumps(item))
@@ -170,5 +163,16 @@ def lambda_handler(event, context):
   # if __name__ == '__main__':
   #   app.run(host="0.0.0.0", port=port)
 
-  # client.put_item(TableName='avi-app-dynamo', Item={'uniqueId': {'S': 'Avinash-test'}, 'timeStamp': {'S': timestamp}})
-  # client.delete_item(TableName='avi-app-dynamo', Item={'uniqueId': {'S': 'Avinash-test'}, 'timeStamp': {'S': "2021-05-22 15:38:25.926850"}})
+  # TIME_TABLE.get_item(Key={'uniqueId': 'Avinash-test', 'timeStamp': '2021-05-22 15:38:25.926850'})
+
+  # import boto3
+  #
+  # def lambda_handler(event, context):
+  #   print(event)
+  #
+  #   DB_TABLE = 'avi-app-dynamo'
+  #   dd_resource = boto3.resource('dynamodb', region_name='eu-west-1',
+  #                                endpoint_url='https://dynamodb.eu-west-1.amazonaws.com')
+  #   TIME_TABLE = dd_resource.Table(DB_TABLE)
+  #   resp = TIME_TABLE.get_item(Key={'uniqueId': '124', 'timeStamp': '5678'})
+  #   print(resp)
