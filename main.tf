@@ -6,7 +6,7 @@ variable lambda_name          {default = "avi-lambda-app-api"}
 variable dynamo_read          {default = 20}
 variable dynamo_write         {default = 20}
 variable cidr_block           {default = "10.0.0.0/24"}
-variable private_subnet_cidr  {default = ["10.0.0.112/28", "10.0.0.144/28"]}
+//variable private_subnet_cidr  {default = ["10.0.0.112/28", "10.0.0.144/28"]}
 variable public_subnet_cidr   {default = ["10.0.0.32/28", "10.0.0.80/28"]}
 variable dynamobAWSIps        {default = ["52.94.24.0/23", "52.94.26.0/23", "52.94.5.0/24", "52.119.240.0/21"]}
 variable "availability_zone"  {default = ["eu-west-1a", "eu-west-1b"]}
@@ -108,17 +108,6 @@ resource "aws_subnet" "public_subnet" {
   depends_on = [aws_vpc.app_vpc]
 }
 
-resource "aws_subnet" "private_subnet" {
-  count             = length(var.private_subnet_cidr)
-  cidr_block        = var.private_subnet_cidr[count.index]
-  vpc_id            = aws_vpc.app_vpc.id
-  availability_zone = var.availability_zone[count.index]
-  tags = {
-    Name = "avi-private-subnet_${count.index}"
-  }
-  depends_on = [aws_vpc.app_vpc]
-}
-
 resource "aws_network_acl" "nacl" {
   vpc_id     = aws_vpc.app_vpc.id
   subnet_ids = aws_subnet.public_subnet.*.id
@@ -166,7 +155,7 @@ resource "aws_network_acl_rule" "nacl_rules_out_ephemeral" {
   cidr_block     = var.source_ips
   to_port        = 65535
   from_port      = 1024
-  egress         = false
+  egress         = true
   lifecycle {
     create_before_destroy = false
   }
@@ -343,12 +332,8 @@ module "lambda_in" {
   description   = "Lambda inbound"
 }
 
-data "aws_prefix_list" "dynamoDB_EP" {
-  filter {
-    name   = "Name"
-    values = ["avi-dynamodb-ep"]
-  }
-  depends_on = [aws_vpc_endpoint.dynamoDB]
+data "aws_prefix_list" "private_dynamoDB" {
+  prefix_list_id = aws_vpc_endpoint.dynamoDB.prefix_list_id
 }
 
 # outbound Rules for Lambda to dynamoDB
@@ -356,7 +341,7 @@ resource "aws_security_group_rule" "lambda_out_endpoint" {
   from_port                = 443
   protocol                 = "tcp"
   security_group_id        = aws_security_group.public-lambda-sg.id
-  prefix_list_ids          = [data.aws_prefix_list.dynamoDB_EP.id]
+  prefix_list_ids          = [data.aws_prefix_list.private_dynamoDB.prefix_list_id]
   to_port                  = 443
   type                     = "egress"
   description              = "Outbound Lambda EP"
