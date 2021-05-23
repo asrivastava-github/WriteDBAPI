@@ -1,7 +1,7 @@
 {
   "services": {
     "prod": {
-      "accountId": "377219046518",
+      "accountId": "",
       "/app": {
         "function": "write_timestamp",
         "method": ["POST", "GET"],

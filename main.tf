@@ -1,4 +1,3 @@
-variable account_id           {default = "3772190465"}
 variable state_bucket         {default = "avi-assignment-api-service"}
 variable state_key            {default = "avi-assignment-tfstate.tfstate"}
 variable db_name              {default = "avi-app-dynamo"}
