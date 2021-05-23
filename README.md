@@ -72,3 +72,4 @@ https://docs.aws.amazon.com/lambda/latest/dg/monitoring-functions-access-metrics
 https://docs.aws.amazon.com/lambda/latest/dg/runtimes-extensions-api.html
 https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GettingStarted.Python.03.html
 https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb.html#service-resource
+https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html

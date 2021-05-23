@@ -10,31 +10,6 @@ arg_passed.add_argument('-a', '--action', help='What terraform action to perform
                         choices={'plan', 'apply', 'destroy', 'planDestroy'})
 arg_passed.add_argument('-e', '--env', help='Which environment deployment', required=True, default='prod',
                         choices={'prod'})
-arg_passed.add_argument('-p', '--path', help='which endpoint to deploy, defined in config', required=True, default='/app',
-                        choices={'/app'})
-
-
-def zip_app_files(app_path):
-    # initializing empty file paths list
-    file_paths = list()
-    # crawling through directory and subdirectories"aws_security_group" "private-lambda-sg" {
-    for root, directories, files in os.walk(app_path):
-        for filename in files:
-            # join the two strings in order to form the full filepath.
-            filepath = os.path.join(root, filename)
-            file_paths.append(filepath)
-
-    # returning all file paths
-    if not file_paths:
-        raise Exception('Application code directory not found.')
-
-    # writing files to a zipfile
-    with ZipFile('{}.zip'.format(app_path, 'w')) as zip:
-        # writing each file one by one
-        for file in file_paths:
-            zip.write(file)
-
-    print('Lambda code has been zipped successfully!')
 
 
 def run_cmd(cmd):
@@ -44,20 +19,7 @@ def run_cmd(cmd):
         raise Exception('Execution failed for: {}'.format(cmd))
 
 
-def create_infra(tf_bucket, tf_key, tf_action, required_vars):
-    run_cmd("terraform init -no-color -backend-config='bucket={0}' -backend-config='key={1}'".format(tf_bucket, tf_key))
-    run_cmd('terraform get --update')
-    if tf_action == 'plan':
-        run_cmd('terraform {0} -no-color {1}'.format(tf_action, required_vars))
-        return
-    elif tf_action == 'planDestroy':
-        run_cmd('terraform plan -no-color -destroy {0}'.format(required_vars))
-        return
-    else:
-        run_cmd('terraform {0} -no-color -auto-approve {1}'.format(tf_action, required_vars))
-        return
-
-# Create bucket in advance
+# Create terraform state bucket to store the terraform files in advance
 def create_bucket(client, bucket_name, aws_region, num=1):
     try:
         client.create_bucket(
@@ -87,7 +49,7 @@ def create_bucket(client, bucket_name, aws_region, num=1):
         if 'BucketAlreadyOwnedByYou' in str(e):
             print('Bucket ')
 
-def main(tf_action, environment, svc_path, config_file, aws_region=None, infra=None):
+def main(tf_action, environment, config_file, aws_region=None, infra=None):
     aws_region = aws_region if aws_region else 'eu-west-1'
     home = str(Path.home())
     for setup_file in ['credentials', 'config']:
@@ -104,15 +66,15 @@ def main(tf_action, environment, svc_path, config_file, aws_region=None, infra=N
     if not app_struct:
         raise Exception('Application Structure definition missing: {}'.format(config_file))
 
-    if not svc_path in app_struct['services'][environment]:
-        raise Exception('Service endpoint ({}) details is missing in Application Structure definition.'.format(svc_path))
-
     # Fetch required configurations
     state_bucket = app_struct['services']['state_bucket']
     state_key = app_struct['services']['state_key']
-    methods = ','.join(app_struct['services'][environment][svc_path]['method'])
-    source_code = app_struct['services'][environment][svc_path]['function']
-    tf_var_fl = os.path.join('infrastructure', 'variables', environment, '{}.tfvars'.format(source_code))
+    endpoint = app_struct['services'][environment]['endpoint']
+    methods = ','.join(app_struct['services'][environment]['method'])
+    source_code = app_struct['services'][environment]['function']
+
+    # Tech Dept: Below can be used to segregate the endpoint and pick up the whole configuration of infra from a file.
+    # tf_var_fl = os.path.join('infrastructure', 'variables', environment, '{}.tfvars'.format(source_code))
 
     # Place in pre requisite
     s3_client = boto3.client('s3', region_name=aws_region)
@@ -129,15 +91,18 @@ def main(tf_action, environment, svc_path, config_file, aws_region=None, infra=N
     if not state:
         create_bucket(s3_client, state_bucket, aws_region)
 
-    if infra == 'network':
-        tf_key = '{0}/{1}{2}-infra.tfstate'.format(environment, state_key, svc_path.replace('/', ''))
-        required_vars = "-var 'endpoint={0}' -var 'methods={1}' -var 'source_code={2}' -var-file={3}"\
-            .format(svc_path, methods, source_code, tf_var_fl)
-        create_infra(state_bucket, tf_key, tf_action, required_vars)
+    # Tech Dept: Below piece of code not in use, this is an attemp to segregate the Standard infra and application infra
+    # as mentioned in the assigment submitted
+    # if infra == 'network':
+    #     tf_key = '{0}/{1}{2}-infra.tfstate'.format(environment, state_key, endpoint.replace('/', ''))
+    #     required_vars = "-var 'endpoint={0}' -var 'methods={1}' -var 'source_code={2}' -var-file={3}"\
+    #         .format(endpoint, methods, source_code, tf_var_fl)
+    #     create_infra(state_bucket, tf_key, tf_action, required_vars)
 
-    tf_key = '{0}/{1}{2}-infra.tfstate'.format(environment, state_key, svc_path.replace('/', ''))
-    required_vars = "-var 'endpoint={0}' -var 'methods={1}' -var 'source_code={2}'".format(svc_path, methods,
-                                                                                           source_code)
+    # We can have a separate tf state file for each endpoint deployment and this is the reason I wanted to separate the
+    # standard network related stack from dynamic application infrastructure. Noted in Tech Debt
+    tf_key = '{0}/{1}{2}-infra.tfstate'.format(environment, state_key, endpoint.replace('/', ''))
+    required_vars = "-var 'endpoint={0}' -var 'methods={1}' -var 'source_code={2}'".format(endpoint, methods, source_code)
     run_cmd("terraform init -no-color -backend-config='bucket={0}' -backend-config='key={1}'".format(state_bucket, tf_key))
     run_cmd('terraform get --update')
     if tf_action == 'plan':
@@ -153,10 +118,62 @@ def main(tf_action, environment, svc_path, config_file, aws_region=None, infra=N
 
 if __name__ == '__main__':
     args = vars(arg_passed.parse_args())
+
+    # Which terraform action you want to perform plan, apply, destroy, plan for destroy (planDestroy)
     action = args['action']
+
+    # Below options are to provide the flexibility of choosing the parameter based on environment, It can be made more
+    # flexible by passing endpoint itself. Like which endpoint you want to deploy and accordingly decide the deployment
+    # variables
     env = args['env']
-    endpoint = args['path']
+    # A static file defining the structure/parameters/config of application
     app_struct = 'application_structure.json'
-    main(action, env, endpoint, app_struct)
+    main(action, env, app_struct)
+
+
+#### MAIN CODE ENDS HERE !!!!
+
+
+
+
+#### Tech Dept: Below two methods are not in use yet
+
+def zip_app_files(app_path):
+    # initializing empty file paths list
+    file_paths = list()
+    # crawling through directory and subdirectories"aws_security_group" "private-lambda-sg" {
+    for root, directories, files in os.walk(app_path):
+        for filename in files:
+            # join the two strings in order to form the full filepath.
+            filepath = os.path.join(root, filename)
+            file_paths.append(filepath)
+
+    # returning all file paths
+    if not file_paths:
+        raise Exception('Application code directory not found.')
+
+    # writing files to a zipfile
+    with ZipFile('{}.zip'.format(app_path, 'w')) as zip:
+        # writing each file one by one
+        for file in file_paths:
+            zip.write(file)
+
+    print('Lambda code has been zipped successfully!')
+
+
+def create_infra(tf_bucket, tf_key, tf_action, required_vars):
+    run_cmd("terraform init -no-color -backend-config='bucket={0}' -backend-config='key={1}'".format(tf_bucket, tf_key))
+    run_cmd('terraform get --update')
+    if tf_action == 'plan':
+        run_cmd('terraform {0} -no-color {1}'.format(tf_action, required_vars))
+        return
+    elif tf_action == 'planDestroy':
+        run_cmd('terraform plan -no-color -destroy {0}'.format(required_vars))
+        return
+    else:
+        run_cmd('terraform {0} -no-color -auto-approve {1}'.format(tf_action, required_vars))
+        return
+
+#### Tech Dept: Above two methods are not in use yet
 
 
