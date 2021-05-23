@@ -150,7 +150,7 @@ resource "aws_network_acl_rule" "nacl_rules_in_dynamoDB_EP" {
   rule_action    = "allow"
   rule_number    = count.index * 10 + 400
   cidr_block     = var.dynamobAWSIps[count.index]
-  to_port        = 65355
+  to_port        = 65535
   from_port      = 1024
   lifecycle {
     create_before_destroy = false
@@ -177,7 +177,7 @@ resource "aws_network_acl_rule" "nacl_rules_out_https" {
   network_acl_id = aws_network_acl.nacl.id
   protocol       = "tcp"
   rule_action    = "allow"
-  rule_number    = 200
+  rule_number    = 300
   cidr_block     = var.source_ips
   to_port        = 443
   from_port      = 443
@@ -211,6 +211,9 @@ resource "aws_vpc_endpoint" "dynamoDB" {
     }]
   })
   depends_on = [aws_route_table.route_table]
+  tags = {
+    Name = "avi-dynamodb-ep"
+  }
 }
 
 resource "aws_route" "routes" {
@@ -314,8 +317,8 @@ module "alb_out_std" {
 module "alb_out_ephemral" {
   source        = "./infrastructure/modules/security_group_rules"
   type          = "egress"
-  to_port       = 1024
-  from_port     = 65355
+  to_port       = 65535
+  from_port     = 1024
   protocol      = "tcp"
   sg_count      = "0"
   cidr_count    = "1"
@@ -341,7 +344,11 @@ module "lambda_in" {
 }
 
 data "aws_prefix_list" "dynamoDB_EP" {
-  prefix_list_id = aws_vpc_endpoint.dynamoDB.id
+  filter {
+    name   = "Name"
+    values = ["avi-dynamodb-ep"]
+  }
+  depends_on = [aws_vpc_endpoint.dynamoDB]
 }
 
 # outbound Rules for Lambda to dynamoDB
