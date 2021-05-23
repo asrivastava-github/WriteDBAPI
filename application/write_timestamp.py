@@ -13,34 +13,25 @@ std_welcome = """<html><head><title>writeDB</title><style>html, body {margin: 0;
 font-weight: 700; font-size: 3em; text-align: center;}</style></head><body><p>Welcome to HomePage</p></body></html>"""
 
 def prepare_response(code, result=None, resp_type=None):
-  body = "<html><head><title>DB timestamp response</title><body><div>{}</div></body></head></html>".format(result) if result else std_welcome
+  body = result if result else std_welcome
   msg = 'OK' if str(code).startswith('2') else 'NOT OK'
-  resp_type = resp_type if resp_type else 'text/html;'
+  resp_type = resp_type if resp_type else 'application/json'
 
   return {
     'statusCode': code,
     'statusDescription': '{0} {1}'.format(code, msg),
     'isBase64Encoded': False,
-    'body': body,
+    'body': '{}\n'.format(body),
     'headers': {
       'Content-Type': '{}; charset=utf-8'.format(resp_type)
     }
   }
 
-
-# endpoint = os.environ['PATH']
-# accept_methods = os.environ['METHODS'].replace(' ', '').replace('"', '').replace("'", "").split(',')
-
 # few standard error
-# not_found_error = json.dumps({'error': 'Requested Resource is not found. No timestamp has been recorded yet.'}), 404
-not_found_error = prepare_response(404, "{'error': 'Requested Resource is not found. No timestamp has been recorded yet.'}")
-# bad_request_error = json.dumps({'error': 'Bad Request, Server is unable to understand the request. '
-#                                          'No timestamp has been recorded yet.'}), 400
-bad_request_error = prepare_response(400, "'error': 'Bad Request, Server is unable to understand the request. No "
-                                          "timestamp has been recorded yet.'", resp_type='application/json')
-# std_error = json.dumps({'error': 'This logic has not been code. Implementation pending.'}), 501
-std_error = prepare_response(501, "{'error': 'This logic has not been code. Implementation pending.'}")
-server_error = """'error': 'Unable to put item in DB: {}'"""
+not_found_error = prepare_response(404, {'error': 'Requested Resource is not found. No timestamp is recorded yet.'})
+bad_request_error = prepare_response(400, {'error': 'Bad Request, Server is unable to understand the request. No '
+                                                    'timestamp has been recorded yet.'}, resp_type='application/json')
+std_error = prepare_response(501, {'error': 'This logic has not been code. Implementation pending.'})
 
 # Fetch the Table name from environment variable. It can be passed via terraform as well
 DB_TABLE = os.environ['DB_TABLE']
@@ -74,6 +65,15 @@ def fetch_entry(unique_id, time_stamp):
 
   return entry_exists, item
 
+def fetch_all_keys():
+  response = TIME_TABLE.scan()
+  items = response['Items']
+  items.sort(key=lambda x: x['timeStamp'])
+  response = ''
+  for item in items:
+    response = '{0}\n{1}'.format(response, item)
+  return response
+
 
 def lambda_handler(event, context):
   print(event)
@@ -93,7 +93,7 @@ def lambda_handler(event, context):
   if request_path == '/health':
     if 'user-agent' in headers:
       if headers['user-agent'] == 'ELB-HealthChecker/2.0':
-        return prepare_response(200)
+        return prepare_response(200, resp_type='text/html')
   else:
     trace_id = headers.get('x-amzn-trace-id')
     client_ip = headers.get('x-forwarded-for')
@@ -109,12 +109,12 @@ def lambda_handler(event, context):
     if not (trace_id and client_ip and serve_port and protocol):
       return bad_request_error
     if request_path == '/' and request_method == 'GET':
-      return prepare_response(200)
+      return prepare_response(200, resp_type='text/html')
     if request_path == '/app' and request_method == 'POST':
       # Making Lambda idempotent
       entry, item = fetch_entry(unique_id, timestamp)
       if entry and item:
-        return prepare_response(200, "{'info': 'DB timestamp entry already exists with uniqueID: {}.'.format(unique_id)}")
+        return prepare_response(200, {'info': 'DB timestamp entry already exists with uniqueID: {}.'.format(unique_id)})
       else:
         try:
           print('Writing timestamp to DynamoDB, uniqueID: {}'.format(unique_id))
@@ -132,13 +132,16 @@ def lambda_handler(event, context):
       entry, item = fetch_entry(unique_id, timestamp)
       if not entry:
         return not_found_error
-      return prepare_response(201, json.dumps(item))
+      return prepare_response(201, item['timeStamp'])
 
     if request_path == '/app' and request_method == 'GET':
-      entry, item = fetch_entry(unique_id, timestamp)
-      if not entry:
+      recent_possible_items = fetch_all_keys()
+      if not recent_possible_items:
         return not_found_error
-      return prepare_response(200, json.dumps(item))
+      return prepare_response(200, recent_possible_items)
+
+
+  # "<html><head><title>DB timestamp response</title><body><div>{}</div></body></head></html>".format(result)
 
 
   # from flask import Flask, request

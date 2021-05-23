@@ -17,7 +17,7 @@ arg_passed.add_argument('-p', '--path', help='which endpoint to deploy, defined 
 def zip_app_files(app_path):
     # initializing empty file paths list
     file_paths = list()
-    # crawling through directory and subdirectories
+    # crawling through directory and subdirectories"aws_security_group" "private-lambda-sg" {
     for root, directories, files in os.walk(app_path):
         for filename in files:
             # join the two strings in order to form the full filepath.
