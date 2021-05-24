@@ -8,7 +8,7 @@
 
     *   Deployer file -->  deploy_from_local.py
     *   Business logic/API layer/Application -> ./application/write_timestamp.py
-    *   An attempt to design the application structure so that deployment can be controoled via config file --> application_structure.json
+    *   An attempt to design the application structure so that deployment can be cotrolled via config file --> application_structure.json
     *   Infrastructure builder --> main.tf
         *   Create security group rules 
                 --> ./infrastructure/modules/security_group_rules/sg_rules.tf
@@ -18,13 +18,13 @@
                 --> ./infrastructure/modules/target/lambda_target.tf
 
 ## Execution
-
-#### Pre-requisite:
+infrastructure
+#### Prerequisite:
     * Terraform version v0.13 or above must be installed. This project is build/tested using v0.14.2/0.15.4
     * Python version 3 (3.5 above) should be installed, This project is build/tested using Python 3.8.2
         * python3 -m pip install boto3 (pip Install boto3)
         * python3 -m pip install requests (pip Install requests)
-        Avioding file clutter else a requirements.txt will also be okay to define the required python pckages.
+        Avoiding file clutter else a requirements.txt will also be okay to define the required python packages.
         
     https://boto3.amazonaws.com/v1/documentation/api/1.9.42/guide/quickstart.html)
 
@@ -40,15 +40,15 @@
 ### Deployment: plan --> apply --> visual test --> planDestroy --> destroy
     * cd writeDBAPI
 
-        Curently I am owning avi-assignment-api-service bucket so if you are testing/deploying the solution, and getting
-        bucket exists error, let me know I will delete or change the bucket name in application_structure.json as s3 
+        Currently I am owning avi-assignment-api-service bucket so if you are testing/deploying the solution, and getting
+        bucket exists error, let me know I will delete, Alternatively change the bucket name in application_structure.json as s3 
         bucket names are unique.
 
-    * Run below to plan the system infrastrcuture
+    * Run below to plan the system infrastructure
         * python3 deploy_from_local.py -a plan -e poc
 
 
-    * Run below to provision the system infrastrcuture
+    * Run below to provision the system infrastructure
         * python3 deploy_from_local.py -a apply -e poc
 
 
