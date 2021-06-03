@@ -1,0 +1,50 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "lambdadynamoDB",
+      "Effect": "Allow",
+      "Action":[
+        "dynamodb:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ec2Access",
+      "Effect": "Allow",
+      "Action":[
+        "ec2:AttachNetworkInterface",
+        "ec2:CreateNetworkInterface",
+        "ec2:DeleteNetworkInterface",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DetachNetworkInterface"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "lambdaAccess",
+      "Effect": "Allow",
+      "Action":[
+        "lambda:InvokeFunction",
+        "lambda:InvokeAsync"
+      ],
+      "Resource": ["arn:aws:lambda:::function/avi-*"]
+    },
+    {
+      "Sid": "logCreate",
+      "Effect": "Allow",
+      "Action":[
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": ["arn:aws:logs::*"]
+    },
+    {
+      "Sid": "logPut",
+      "Effect": "Allow",
+      "Action": ["logs:PutLogEvents"],
+      "Resource": ["arn:aws:logs:::log-group:/aws/lambda/*/"]
+    }
+  ]
+}

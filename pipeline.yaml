@@ -1,0 +1,115 @@
+parameters:
+  - name: aws_region
+    displayName: AWS Region to deploy to
+    type: string
+    default: eu-west-2
+    values:
+    - eu-west-2
+    - eu-west-3
+    - eu-west-1
+
+  - name: infraLayer
+    displayName: Which infrstucture stack to deploy (In case of api_layer, make sure network_layer has already been deployed)?
+    type: string
+    default: network_layer
+    values:
+    - network_layer
+    - api_layer
+
+  - name: env
+    displayName: Which environment to deploy?
+    type: string
+    default: poc
+    values:
+    - poc
+    - staging
+    - prod
+
+  - name: terraformAction
+    displayName: What terraform action needs to be executed?
+    type: string
+    default: plan
+    values:
+    - plan
+    - apply
+    - destroy
+    - planDestroy
+    - load_test
+
+variables:
+  - group: aws-terraform
+  - name: aws_access_key
+    value: $[variables.AWS_ACCESS_KEY_ID]
+  - name: aws_secrete_key
+    value: $[variables.AWS_SECRET_ACCESS_KEY]
+
+trigger: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: scan
+    displayName: Terrafrom Scan
+    jobs:
+    - job: tf_scan
+      displayName: Scan ${{ parameters.infraLayer }}
+      continueOnError: false
+      steps:
+      - script: |
+          python3 -m pip install --upgrade pip --user
+          python3 -m pip install checkov --user
+        displayName: Install Checkov
+      - script: |
+          checkov -d ${{ parameters.infraLayer }} --skip-check CKV_AWS_103,CKV_AWS_2,CKV_AWS_50,CKV_AWS_116,CKV_AWS_115,CKV2_AWS_12,CKV2_AWS_6,CKV2_AWS_5,CKV2_AWS_5,CKV_AWS_131,CKV_AWS_150,CKV_AWS_18,CKV_AWS_145,CKV_AWS_52,CKV_AWS_21,CKV_AWS_144,CKV_AWS_28,CKV_AWS_158,CKV_AWS_158,CKV_AWS_119
+        displayName: Scan terraform DSL
+        # https://www.checkov.io/5.Policy%20Index/all.html
+
+
+  - stage: action
+    displayName: Terrafrom Action
+    jobs:
+    - job: tf_plan
+      displayName: Terraform ${{ parameters.terraformAction }}
+      continueOnError: false
+      steps:
+      - script: |
+          python3 -m pip install --upgrade pip --user
+          python3 -m pip install boto3 --user
+        displayName: Install boto3
+
+      - script: |
+          aws configure set aws_access_key_id $(aws_access_key)
+          aws configure set aws_secret_access_key $(aws_secrete_key)
+          aws configure set default.region ${{ parameters.aws_region }}
+        displayName: Configure AWS ${{ parameters.env }}
+
+      - script: |
+          python3 deployer.py -a ${{ parameters.terraformAction }} -e ${{ parameters.env }} -s ${{ parameters.infraLayer }}
+        displayName: ${{ parameters.terraformAction }} ${{ parameters.infraLayer }}
+
+
+  - stage: loadTest
+    displayName: Load Test
+    condition: and(eq('${{ parameters.terraformAction }}', 'apply'), eq('${{ parameters.infraLayer }}', 'api_layer'))
+    jobs:
+      - job: test
+        displayName: Load Test on ${{ parameters.infraLayer }}
+        continueOnError: false
+        steps:
+          - script: |
+              python3 -m pip install --upgrade pip --user
+              python3 -m pip install locust --user
+              python3 -m pip install boto3 --user
+            displayName: Install locous, boto3 for load test
+
+          - script: |
+              aws configure set aws_access_key_id $(aws_access_key)
+              aws configure set aws_secret_access_key $(aws_secrete_key)
+              aws configure set default.region ${{ parameters.aws_region }}
+            displayName: Configure AWS ${{ parameters.env }}
+
+          - script: |
+              python3 deployer.py -a load_test -e ${{ parameters.env }} -s ${{ parameters.infraLayer }}
+            displayName: Running locust load test
+
