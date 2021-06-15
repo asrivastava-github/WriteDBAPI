@@ -32,7 +32,7 @@ data "aws_subnet" "private_subnet_1" {
 
 data "aws_security_groups" "private_sg" {
   tags = {
-    Name = "avi-public-alb-sec-grp"
+    Name = "avi-private-lambda-sec-grp"
   }
 }
 

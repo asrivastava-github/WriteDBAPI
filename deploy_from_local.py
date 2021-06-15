@@ -7,7 +7,7 @@ from pathlib import Path
 # Capture the arguments being passed
 arg_passed = argparse.ArgumentParser()
 arg_passed.add_argument('-a', '--action', help='What terraform action to perform', required=True, default='plan',
-                        choices={'plan', 'apply', 'destroy', 'planDestroy'})
+                        choices={'plan', 'apply', 'destroy', 'planDestroy', 'refresh'})
 arg_passed.add_argument('-e', '--env', help='Which environment deployment', required=True, default='poc',
                         choices={'poc'})
 arg_passed.add_argument('-s', '--stack', help='Which stack to deploy', required=True, default='network_layer',
@@ -151,6 +151,9 @@ def main(tf_action, environment, config_file, stack):
                 run_cmd('cd api_layer/infrastructure && terraform {0} -no-color {1}'.format(tf_action, required_vars))
             elif tf_action == 'planDestroy':
                 run_cmd('cd api_layer/infrastructure && terraform plan -no-color -destroy {0}'.format(required_vars))
+            elif tf_action == 'refresh':
+                run_cmd('terraform {0} -no-color {1}'.format(tf_action, required_vars))
+                return
             else:
                 run_cmd('cd api_layer/infrastructure && terraform {0} -no-color -auto-approve {1}'.format(tf_action, required_vars))
 
