@@ -11,6 +11,14 @@ terraform {
   backend "s3" {}
 }
 
+terraform {
+  required_providers {
+    aws = {
+      version = ">= 3.43.0"
+      source = "hashicorp/aws"
+    }
+  }
+}
 
 # Required terraform provider, AWS in this case deploying the solution to AWS region eu-west-1
 provider "aws" {
@@ -49,6 +57,11 @@ resource "aws_iam_policy_attachment" "attach_lambda_policy" {
 # Create Serverless API layer in form of Lambda
 # zip lambda script. handling a single python file for POC purpose. In case of dependency management zip will be build
 # as a prerequisite step and stored to artifacoty or any other binary management service. Download before running the terraform
+
+provider "archive" {
+  version = ">=2.2.0"
+}
+
 data "archive_file" "py_api" {
   type        = "zip"
   source_file = "../${var.source_code}.py"

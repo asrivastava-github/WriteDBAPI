@@ -20,6 +20,17 @@ terraform {
   backend "s3" {}
 }
 
+
+terraform {
+  required_providers {
+    aws = {
+      version = ">= 3.43.0"
+      source = "hashicorp/aws"
+    }
+  }
+}
+
+
 # Required terraform provider, AWS in this case deploying the solution to AWS region eu-west-1
 provider "aws" {
   region = var.tf_region
