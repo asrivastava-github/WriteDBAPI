@@ -7,9 +7,11 @@ from pathlib import Path
 # Capture the arguments being passed
 arg_passed = argparse.ArgumentParser()
 arg_passed.add_argument('-a', '--action', help='What terraform action to perform', required=True, default='plan',
-                        choices={'plan', 'apply', 'destroy', 'planDestroy'})
+                        choices={'plan', 'apply', 'destroy', 'planDestroy', 'refresh'})
 arg_passed.add_argument('-e', '--env', help='Which environment deployment', required=True, default='poc',
                         choices={'poc'})
+arg_passed.add_argument('-s', '--stack', help='Which stack to deploy', required=True, default='network_layer',
+                        choices={'network_layer', 'api_layer'})
 
 
 def run_cmd(cmd):
@@ -34,6 +36,7 @@ def create_bucket(client, bucket_name, aws_region):
     Capture the exception of bucket existence.
     """
     try:
+        print('Creating bucket: {}'.format(bucket_name))
         client.create_bucket(
             ACL='private',
             Bucket=bucket_name,
@@ -62,17 +65,16 @@ def create_bucket(client, bucket_name, aws_region):
             print('Bucket exists and owned by you. {}'.format(bucket_name))
 
 
-def main(tf_action, environment, config_file, aws_region=None):
+def main(tf_action, environment, config_file, stack):
     """
     Main method
     :param tf_action: Accepts the terraform action passed in
     :param environment: In which environment you want to deploy the infrastructure. You need to have different AWS
     account for different environment and make sure you update the application_structure.json based on endpoint config
     :param config_file: application_structure.json carrying the details about endpoint for respective environment
-    :param aws_region: Specify the region if you need a specific one by default it eu-west-1
     :return:
     """
-    aws_region = aws_region if aws_region else 'eu-west-1'
+
     home = str(Path.home())
 
     # Make sure AWS CLI has run and set up has been completed which generated below two files
@@ -95,13 +97,15 @@ def main(tf_action, environment, config_file, aws_region=None):
     if not app_struct:
         raise Exception('Application Structure definition missing: {}'.format(config_file))
 
+    region = app_struct['services'].get('aws_region')
+    aws_region = region if region else 'eu-west-1'
+
+    run_cmd('export AWS_PROFILE={}'.format(aws_region))
+
     # Fetch required configurations from application_structure, like terraform state bucket, key. Application specific
     # details like endpoint (/app) and method (POST)
-    state_bucket = app_struct['services']['state_bucket']
+    state_bucket = app_struct['services']['state_bucket'].format(aws_region)
     state_key = app_struct['services']['state_key']
-    endpoint = app_struct['services'][environment]['endpoint']
-    methods = ','.join(app_struct['services'][environment]['method'])
-    source_code = app_struct['services'][environment]['function']
 
     # Place in pre requisite to build the system. Check if state bucket exists if not create it
     s3_client = boto3.client('s3', region_name=aws_region)
@@ -119,20 +123,39 @@ def main(tf_action, environment, config_file, aws_region=None):
         create_bucket(s3_client, state_bucket, aws_region)
 
     # We can have a separate tf state file for each endpoint deployment and this is the reason I wanted to separate the
-    # standard network related stack from dynamic application infrastructure. Noted in Tech Debt
-    tf_key = '{0}/{1}{2}-infra.tfstate'.format(environment, state_key, endpoint.replace('/', ''))
-    required_vars = "-var 'endpoint={0}' -var 'methods={1}' -var 'source_code={2}'".format(endpoint, methods, source_code)
-    run_cmd("terraform init -no-color -backend-config='bucket={0}' -backend-config='key={1}'".format(state_bucket, tf_key))
-    run_cmd('terraform get --update')
-    if tf_action == 'plan':
-        run_cmd('terraform {0} -no-color {1}'.format(tf_action, required_vars))
-        return
-    elif tf_action == 'planDestroy':
-        run_cmd('terraform plan -no-color -destroy {0}'.format(required_vars))
-        return
-    else:
-        run_cmd('terraform {0} -no-color -auto-approve {1}'.format(tf_action, required_vars))
-        return
+    # standard network related stack from dynamic application infrastructure.
+    if stack == 'network_layer':
+        print('Deploying Standard Network Layer which will include VPC, Subnet, IGW, Route tables, NACLs, ALB, SGs etc.')
+        tf_key = '{0}/{1}-network-layer.tfstate'.format(environment, state_key)
+        # required_vars = "-var 'region={0}'".format(aws_region)
+        run_cmd("cd network_layer && terraform init -no-color -backend-config='bucket={0}' -backend-config='key={1}'".format(state_bucket, tf_key))
+        run_cmd('cd network_layer && terraform get --update')
+        if tf_action == 'plan':
+            run_cmd('cd network_layer && terraform {0} -no-color'.format(tf_action))
+        elif tf_action == 'planDestroy':
+            run_cmd('cd network_layer && terraform plan -no-color -destroy')
+        else:
+            run_cmd('cd network_layer && terraform {0} -no-color -auto-approve'.format(tf_action))
+
+    if stack == 'api_layer':
+        for api in app_struct['services'][environment]:
+            endpoint = api['endpoint']
+            methods = ','.join(api['methods'])
+            source_code = api['function']
+            print('Deploying {} API Layer which will include Lambda, ALB target groups etc.'.format(endpoint))
+            tf_key = '{0}/{1}{2}-api-layer.tfstate'.format(environment, state_key, endpoint.replace('/', ''))
+            required_vars = "-var 'endpoint={0}' -var 'methods={1}' -var 'source_code={2}'".format(endpoint, methods, source_code)
+            run_cmd("cd api_layer/infrastructure && terraform init -no-color -backend-config='bucket={0}' -backend-config='key={1}'".format(state_bucket, tf_key))
+            run_cmd('cd api_layer/infrastructure && terraform get --update')
+            if tf_action == 'plan':
+                run_cmd('cd api_layer/infrastructure && terraform {0} -no-color {1}'.format(tf_action, required_vars))
+            elif tf_action == 'planDestroy':
+                run_cmd('cd api_layer/infrastructure && terraform plan -no-color -destroy {0}'.format(required_vars))
+            elif tf_action == 'refresh':
+                run_cmd('terraform {0} -no-color {1}'.format(tf_action, required_vars))
+                return
+            else:
+                run_cmd('cd api_layer/infrastructure && terraform {0} -no-color -auto-approve {1}'.format(tf_action, required_vars))
 
 
 if __name__ == '__main__':
@@ -146,5 +169,8 @@ if __name__ == '__main__':
     # variables
     env = args['env']
     # A static file defining the structure/parameters/config of application
+
+    # Which stack is being deployed first
+    tf_stack = args['stack']
     application_structure = 'application_structure.json'
-    main(action, env, application_structure)
+    main(action, env, application_structure, tf_stack)

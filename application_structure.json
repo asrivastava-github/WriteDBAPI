@@ -1,12 +1,17 @@
 {
   "services": {
-    "poc": {
-      "endpoint": "/app",
-      "function": "write_timestamp",
-      "method": ["POST"],
-      "description": "write timestamp to DB"
-    },
-    "state_bucket": "avi-assignment-api-service",
-    "state_key": "api/avi-"
+    "poc": [
+      {
+        "endpoint": "/app",
+        "function": "write_timestamp",
+        "methods": [
+          "POST"
+        ],
+        "description": "write timestamp to DB"
+      }
+    ],
+    "state_bucket": "avi-assignment-api-service-{0}",
+    "state_key": "api/avi-",
+    "aws_region": "eu-west-2"
   }
 }
